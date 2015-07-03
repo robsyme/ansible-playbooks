@@ -1,0 +1,14 @@
+---
+- name: install slurm
+  become: yes
+  apt: name=slurm-llnl update_cache=yes
+- name: save munge key
+  become: yes
+  copy: src=munge.key dest=/etc/munge/munge.key owner=munge group=munge mode=0400
+- name: Copy modified munge defaults
+  become: yes
+  copy: src=munge dest=/etc/default/munge owner=root group=root mode=0644
+- name: Save slurm configuration
+  become: yes
+  template: src=slurm.conf dest=/etc/slurm-llnl/slurm.conf owner=root group=root mode=0644
+

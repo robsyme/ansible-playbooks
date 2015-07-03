@@ -1,0 +1,4 @@
+---
+- name: start slurmd
+  become: yes
+  command: /usr/sbin/slurmd -c

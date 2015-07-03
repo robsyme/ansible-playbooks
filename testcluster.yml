@@ -1,0 +1,80 @@
+---
+- hosts: localhost
+  connection: local
+  gather_facts: true
+  tasks:
+    - name: Provision master node
+      ec2:
+        key_name: devkey
+        group: WebServerSG
+        instance_type: t2.medium
+        image: ami-d05e75b8
+        wait: true
+        instance_tags: 
+          Name: masternode
+          slurmtype: master
+        count_tag: 
+          slurmtype: master
+        exact_count: 1
+        region: us-east-1
+        vpc_subnet_id: subnet-dee89a87
+        assign_public_ip: yes
+        volumes:
+          - device_name: /dev/xvdb
+            volume_size: 50
+            delete_on_temination: true
+            device_type: standard
+      register: ec2_masters
+    - name: Wait for ssh to come up on the master node
+      wait_for: host={{ item.public_dns_name }} port=22 delay=2 timeout=320 state=started
+      with_items: ec2_masters.tagged_instances
+
+    - name: Provision compute nodes
+      ec2:
+        key_name: devkey
+        group: WebServerSG
+        instance_type: r3.xlarge
+        image: ami-d05e75b8
+        wait: true
+        instance_tags:
+          Name: computenode
+          slurmtype: compute
+        count_tag: 
+          slurmtype: compute
+        exact_count: 2
+        spot_price: 0.08
+        spot_wait_timeout: 3600
+        region: us-east-1
+        vpc_subnet_id: subnet-dee89a87
+        assign_public_ip: yes
+      register: ec2_computes
+    - name: Wait for ssh to come up
+      wait_for: host={{ item.public_dns_name }} port=22 delay=2 timeout=320 state=started
+      with_items: ec2_computes.tagged_instances
+
+- hosts: tag_slurmtype_master:tag_slurmtype_compute
+  remote_user: ubuntu
+  roles:
+    - slurm-common
+
+- hosts: tag_slurmtype_master
+  remote_user: ubuntu
+  pre_tasks:
+    - name: Install filesystem on xvdb
+      become: yes
+      filesystem: fstype=ext4 dev=/dev/xvdb
+    - name: Create the shared directory
+      become: yes
+      file: path=/ppgdata owner=ubuntu group=ubuntu state=directory
+    - name: Mount the volume at /ppgdata
+      become: yes
+      mount: name=/ppgdata state=mounted fstype=ext4 src=/dev/xvdb
+  roles:
+    - { role: nfs-server, nfsdir: /ppgdata }
+    - slurm-master
+
+- hosts: tag_slurmtype_compute
+  remote_user: ubuntu
+  roles:
+    - { role: nfs-client, nfsdir: /ppgdata, nfsserver: "{{ hostvars[groups['tag_slurmtype_master'][0]]['ansible_all_ipv4_addresses'][0] }}" }
+    - slurm-compute

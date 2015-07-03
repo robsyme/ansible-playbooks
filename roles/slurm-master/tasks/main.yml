@@ -1,0 +1,7 @@
+---
+- name: start munge
+  become: yes
+  service: name=munge state=started
+- name: start slurm server
+  become: yes
+  service: name=slurm-llnl state=started

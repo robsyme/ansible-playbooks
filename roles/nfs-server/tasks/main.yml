@@ -1,0 +1,12 @@
+---
+- name: Install nfs
+  become: yes
+  apt: name=nfs-kernel-server update_cache=yes
+- name: Create the shared directory
+  become: yes
+  file: path="{{ nfsdir }}" owner=ubuntu group=ubuntu state=directory
+- name: Add the exported dir to /etc/exports
+  become: yes
+  template: src=exports dest=/etc/exports owner=root mode=0644
+  notify: restart nfs
+  

@@ -1,0 +1,10 @@
+---
+- name: Install nfs
+  become: yes
+  apt: name=nfs-common
+- name: Create the mountpoint
+  become: yes
+  file: path="{{ nfsdir }}" owner=ubuntu group=ubuntu state=directory
+- name: Mount the NFS volume
+  become: yes
+  mount: name=/ppgdata state=mounted fstype=nfs src="{{ nfsserver }}:/ppgdata" opts=rw

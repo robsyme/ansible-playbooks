@@ -1,0 +1,11 @@
+TESTING
+
+{% for host in groups['tag_slurmtype_compute'] %}
+hostvars[{{ host }}:
+{{ hostvars[host] }}
+{% endfor %}
+
+
+
+
+
