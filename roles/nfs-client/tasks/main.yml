@@ -5,6 +5,9 @@
 - name: Create the mountpoint
   become: yes
   file: path="{{ nfsdir }}" owner=ubuntu group=ubuntu state=directory
-- name: Mount the NFS volume
+- name: Mount the NFS volume ppgdata
   become: yes
   mount: name=/ppgdata state=mounted fstype=nfs src="{{ nfsserver }}:/ppgdata" opts=rw
+- name: Mount the NFS home volume
+  become: yes
+  mount: name=/home/ubuntu state=mounted fstype=nfs src="{{ nfsserver }}:/home/ubuntu" opts=rw
