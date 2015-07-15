@@ -11,4 +11,6 @@
 - name: Save slurm configuration
   become: yes
   template: src=slurm.conf dest=/etc/slurm-llnl/slurm.conf owner=root group=root mode=0644
+  notify:
+    - restart slurm
 
