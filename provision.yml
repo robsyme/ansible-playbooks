@@ -43,7 +43,7 @@
           slurmtype: compute
         exact_count: 2
         # spot_price: 0.08
-        spot_wait_timeout: 3600
+        # spot_wait_timeout: 3600
         region: us-east-1
         vpc_subnet_id: subnet-dee89a87
         assign_public_ip: yes
