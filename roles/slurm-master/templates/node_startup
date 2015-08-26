@@ -1,0 +1,121 @@
+#!/bin/bash
+#set -o errexit
+#set -o pipefail
+#set -o nounset
+set -o xtrace
+
+function setup_node {
+    ip=$1
+
+    ansible $ip --user ubuntu --sudo -m apt -a 'name=slurm-llnl update_cache=yes'
+    if [ ! -r munge.key ]; then sudo cp /etc/munge/munge.key . && sudo chown ubuntu munge.key; fi
+    ansible $ip --user ubuntu --sudo -m copy -a 'src=munge.key dest=/etc/munge/munge.key owner=munge group=munge mode=0400'
+    ansible $ip --user ubuntu --sudo -m copy -a 'src=/etc/default/munge dest=/etc/default/munge owner=root group=root mode=0644'
+    ansible $ip --user ubuntu -m file -a 'path=/etc/slurm-llnl state=directory'
+    ansible $ip --user ubuntu --sudo -m copy -a 'src=/etc/slurm-llnl/slurm.conf dest=/etc/slurm-llnl/slurm.conf owner=root group=root mode=0644'
+    ansible $ip --user ubuntu --sudo -m command -a '/usr/sbin/slurmd -c'
+    ansible $ip --user ubuntu --sudo -m apt -a 'name=nfs-common'
+    ansible $ip --user ubuntu --sudo -m file -a 'path=/ppgdata owner=ubuntu group=ubuntu state=directory'
+    ansible $ip --user ubuntu --sudo -m mount -a "name=/ppgdata state=mounted fstype=nfs src=\"${master}:/ppgdata\" opts=rw"
+}
+
+
+host=$1
+master=$(hostname)
+log=/home/ubuntu/node_startup.log
+ip=`echo ${host} | sed -e 's/ip-//g' -e 's/-/\./g'`
+echo "INFO: $(date) | Node startup invoked by $(whoami): $0 $*" >> $log
+
+export ANSIBLE_HOST_KEY_CHECKING=False
+ansible all -c local -i 127.0.0.1, --sudo -m lineinfile -a "dest=/etc/ansible/hosts line=\"${ip} ansible_ssh_private_key_file=/home/ubuntu/.ssh/slurmkey.pem\""
+
+# Check to see if the node is in a stopped state
+stopped_instance_id=`aws ec2 describe-instances | jq --raw-output ".Reservations[].Instances[] | select(.State.Name == \"stopped\") | select(.PrivateIpAddress == \"${ip}\") | .InstanceId"`
+if [ -n "${stopped_instance_id}" ]
+then
+    # Instance exits, but is stopped. Better start it back up
+    aws ec2 start-instances \
+        --instance-ids ${stopped_instance_id}
+    aws ec2 wait instance-running \
+        --instance-ids ${stopped_instance_id}
+fi
+
+
+# Is there an open request for this node?
+open_spot_request=`aws ec2 describe-spot-instance-requests --filters "Name=network-interface.private-ip-address,Values=${ip}" | jq '.SpotInstanceRequests[] | .State' | grep -e open -e active`
+# Is there an instance already running?
+running_instance_id=`aws ec2 describe-instances | jq --raw-output ".Reservations[].Instances[] | select(.State.Name == \"running\") | select(.PrivateIpAddress == \"${ip}\") | .InstanceId"`
+if [ ${running_instance_id} ]
+then 
+    ssh-keygen -R $host || true
+    ssh-keygen -R $ip || true
+    # Wait for SSH to come up 
+    until ansible $ip --user ubuntu --sudo -m wait_for -a "port=22 host=${host}"
+    do
+        echo "Waiting on SSH to come up on ${host}"
+        sleep 5
+    done
+    
+    setup_node $ip
+    exit 0
+elif [ $open_spot_request ]
+then
+    echo "INFO: $(date) | Resuming ${host}. Spot request already exists." >> $log
+    exit 0
+else
+    # Remove the host from known hosts (in case the machine has changed)
+    ssh-keygen -R $host
+    ssh-keygen -R $ip
+
+    # What sort of instance are we launching? This scheme provides
+    # room for 10 nodes of each instance.  There is plentry of room
+    # for improvement here.
+    if   expr "$host" : 'ip-10-0-0-[0-9]$'  >/dev/null; then instancetype="m3.medium"; spotprice=0.06
+    elif expr "$host" : 'ip-10-0-0-1[0-9]$' >/dev/null; then instancetype="m3.medium"; spotprice=0.06
+    elif expr "$host" : 'ip-10-0-0-2[0-9]$' >/dev/null; then instancetype="m4.large"; spotprice=0.21
+    elif expr "$host" : 'ip-10-0-0-3[0-9]$' >/dev/null; then instancetype="m4.xlarge"; spotprice=0.41
+    elif expr "$host" : 'ip-10-0-0-4[0-9]$' >/dev/null; then instancetype="c4.large"; spotprice=0.51
+    elif expr "$host" : 'ip-10-0-0-5[0-9]$' >/dev/null; then instancetype="c4.xlarge"; spotprice=1.01
+    elif expr "$host" : 'ip-10-0-0-6[0-9]$' >/dev/null; then instancetype="c4.2xlarge"; spotprice=0.55
+    elif expr "$host" : 'ip-10-0-0-7[0-9]$' >/dev/null; then instancetype="c4.4xlarge"; spotprice=2.01
+    elif expr "$host" : 'ip-10-0-0-8[0-9]$' >/dev/null; then instancetype="r3.xlarge"; spotprice=0.41
+    elif expr "$host" : 'ip-10-0-0-9[0-9]$' >/dev/null; then instancetype="r3.2xlarge"; spotprice=0.51
+    else instancetype="t1.micro"; spotprice=0.02;
+    fi
+
+    echo "INFO: $(date) | Resuming ${host}. Reqesting instance (as $(whoami) in $(pwd))" >> $log
+    aws ec2 request-spot-instances \
+        --spot-price ${spotprice} \
+        --instance-count 1 \
+        --type 'one-time' \
+        --launch-specification "{\"ImageId\": \"ami-d05e75b8\",\"KeyName\": \"slurmkey\",\"InstanceType\": \"${instancetype}\",\"NetworkInterfaces\": [{\"DeviceIndex\": 0,\"SubnetId\": \"subnet-dee89a87\", \"PrivateIpAddress\": \"${ip}\",\"Groups\": [\"sg-a1e412c6\"],\"DeleteOnTermination\": true,\"AssociatePublicIpAddress\": true}]}" \
+        > request_${host}.json
+    request_id=`jq --raw-output ".SpotInstanceRequests[] | .SpotInstanceRequestId" request_${host}.json`
+    echo "INFO: $(date) | Resuming ${host}. Waiting for spot instances to be fulfilled: ${request_id}" >> $log
+    until aws ec2 wait spot-instance-request-fulfilled --spot-instance-request-ids ${request_id}; do sleep 10; done
+                
+    aws ec2 describe-spot-instance-requests --spot-instance-request-ids ${request_id} > instance_${host}.json
+    instance_ids=`jq --raw-output ".SpotInstanceRequests[] | .InstanceId" instance_${host}.json`
+    echo "INFO: $(date) | Resuming ${host}. Spot instance request (${request_id}) fulfilled. Waiting for instance: ${instance_ids}" >> $log
+    aws ec2 wait instance-running --instance-ids ${instance_ids}
+    
+    echo "INFO: $(date) | Resuming ${host}. Tagging instance: ${instance_ids}" >> $log
+    aws ec2 create-tags --tags \
+        Key=cloud,Value=true \
+        Key=slurmtype,Value=computenode \
+        Key=NodeName,Value=spotnode-${host} \
+        Key=Name,Value=spotnode-${host} \
+        --resources ${instance_ids}
+    
+    # Wait for SSH to come up 
+    echo "INFO: $(date) | Resuming ${host}. Waiting for ssh at ${ip}" >> $log
+    until ansible $ip --user ubuntu --sudo -m wait_for -a "port=22 host=${host}"
+    do
+        echo "Waiting on SSH to come up on ${host}"
+        sleep 5
+    done
+    
+    # Just a bit of time for networking to come up properly.
+    sleep 5
+    setup_node $ip
+fi

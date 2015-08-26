@@ -1,5 +1,5 @@
 ---
-- hosts: tag_slurmtype_master:tag_slurmtype_compute
+- hosts: tag_slurmtype_master:tag_slurmtype_computenode
   remote_user: ubuntu
   roles:
     - slurm-common
@@ -19,9 +19,9 @@
   roles:
     - { role: nfs-server, nfsdir: /ppgdata }
     - slurm-master
+    - notebook-access
 
-- hosts: tag_slurmtype_compute
+- hosts: tag_slurmtype_computenode
   remote_user: ubuntu
   roles:
-    - { role: nfs-client, nfsdir: /ppgdata, nfsserver: "{{ hostvars[groups['tag_slurmtype_master'][0]]['ansible_all_ipv4_addresses'][0] }}" }
     - slurm-compute

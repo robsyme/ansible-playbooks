@@ -1,2 +1,2 @@
-/home/ubuntu	10.0.0.0/24(rw,sync,no_root_squash,subtree_check)
-{{ nfsdir }}    10.0.0.0/24(rw,sync,no_root_squash,subtree_check)
+/home/ubuntu	10.0.0.0/16(rw,sync,no_root_squash,subtree_check)
+{{ nfsdir }}    10.0.0.0/16(rw,sync,no_root_squash,subtree_check)

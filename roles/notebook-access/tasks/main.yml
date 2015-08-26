@@ -1,0 +1,31 @@
+---
+- name: Copy ssh keys
+  copy: src=~/.ssh/bitbucket dest=~/.ssh/id_dsa mode=0400
+- name: Install git
+  become: yes
+  apt: name=git update_cache=yes
+- name: Install git-annex
+  become: yes
+  apt: name=git-annex
+- name: Install Java7
+  become: yes
+  apt: name=openjdk-7-jre-headless
+- name: Install nextflow
+  become: yes
+  shell: chdir=/usr/local/bin curl -fsSL get.nextflow.io | bash
+- name: Fix nextflow permissions
+  become: yes
+  file: path=/usr/local/bin/nextflow mode='u=rwx,g=rx,o=rx'
+- name: Make ppgdata directory
+  become: yes  
+  file: path=/ppgdata owner=ubuntu group=ubuntu state=directory
+- name: Clean out ppgdata directory
+  become: yes
+  file: path=/ppgdata/lost+found state=absent
+- name: Clone notebook into ppgdata
+  git: dest=/ppgdata repo=git@bitbucket.org:robsyme/ppgdata.git accept_hostkey=yes
+- name: Init S3 remote
+  shell: chdir=/ppgdata git-annex enableremote cloud
+  environment:
+    AWS_ACCESS_KEY_ID: "{{ lookup('env','AWS_ACCESS_KEY_ID') }}"
+    AWS_SECRET_ACCESS_KEY: "{{ lookup('env','AWS_SECRET_ACCESS_KEY') }}"

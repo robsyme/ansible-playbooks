@@ -2,15 +2,34 @@
 - name: install slurm
   become: yes
   apt: name=slurm-llnl update_cache=yes
+- name: Save slurm.conf
+  become: yes
+  template: src=slurm.conf dest=/etc/slurm-llnl/slurm.conf owner=root group=root mode=0644
 - name: save munge key
   become: yes
-  copy: src=munge.key dest=/etc/munge/munge.key owner=munge group=munge mode=0400
+  copy: src=munge.key dest=/etc/munge/munge.key owner=munge group=root mode=0440
 - name: Copy modified munge defaults
   become: yes
   copy: src=munge dest=/etc/default/munge owner=root group=root mode=0644
-- name: Save slurm configuration
+- name: Install docker prereqs
   become: yes
-  template: src=slurm.conf dest=/etc/slurm-llnl/slurm.conf owner=root group=root mode=0644
-  notify:
-    - restart slurm
-
+  apt: name="{{item}}"
+  with_items:
+    - 'linux-image-extra-{{ansible_kernel}}'
+    - 'linux-image-extra-virtual'
+    - 'apparmor'
+    - 'apt-transport-https'
+    - 'ca-certificates'
+    - 'curl'
+- name: Add docker repository key
+  become: yes
+  apt_key: keyserver=hkp://p80.pool.sks-keyservers.net:80 id=58118E89F3A912897C070ADBF76221572C52609D
+- name: enable docker repo
+  become: yes
+  apt_repository: repo="deb https://apt.dockerproject.org/repo ubuntu-{{ansible_distribution_release}} main" update_cache=yes
+- name: install docker
+  become: yes
+  apt: name=docker-engine
+- name: Add user to docker group
+  become: yes
+  shell: usermod -aG docker ubuntu

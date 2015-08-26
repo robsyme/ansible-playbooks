@@ -1,3 +1,0 @@
----
-- name: Save slurm configuration
-  template: src=slurm.conf dest=~/slurm.conf

@@ -1,0 +1,29 @@
+#!/bin/bash
+#set -o pipefail
+#set -o errexit
+#set -o nounset
+set -o xtrace
+
+host=$1
+log=/home/ubuntu/node_startup.log
+echo "INFO: $(date) | Node shutdown invoked by $(whoami): $0 $*" >> $log
+
+# Find out the instance ID of that node
+ip=`echo ${host} | sed -e 's/ip-//g' -e 's/-/\./g'`
+instance_id=`aws ec2 describe-instances | jq --raw-output ".Reservations[].Instances[] | select(.State.Name == \"running\") | select(.PrivateIpAddress == \"${ip}\") | .InstanceId"`
+
+# What type of instance is it?
+spot_request=`aws ec2 describe-instances | jq --raw-output ".Reservations[].Instances[] | select(.State.Name == \"running\") | select(.PrivateIpAddress == \"${ip}\") | .SpotInstanceRequestId"`
+
+if [ -n "${instance_id}" ] && [ -n "${spot_request}" ]
+then
+    aws ec2 terminate-instances --instance-ids ${instance_id}
+    aws ec2 cancel-spot-instance-requests --spot-instance-request-ids ${spot_request}
+elif [ -n "${instance_id}" ]
+then
+    aws ec2 stop-instances --instance-ids ${instance_id}
+fi
+
+# Remove the host  g kfrom the Ansible inventory
+ansible all -c local -i 127.0.0.1, --sudo -m lineinfile -a "dest=/etc/ansible/hosts state=absent line=\"${ip} ansible_ssh_private_key_file=/home/ubuntu/.ssh/ec2key.pem\""
+

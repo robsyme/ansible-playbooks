@@ -2,6 +2,49 @@
 - name: start munge
   become: yes
   service: name=munge state=started
-- name: start slurm server
+- name: enable multiverse
   become: yes
-  service: name=slurm-llnl state=started
+  apt_repository: repo="{{item}}"
+  with_items:
+    - 'deb http://archive.ubuntu.com/ubuntu {{ansible_distribution_release}} multiverse'
+    - 'deb-src http://archive.ubuntu.com/ubuntu {{ansible_distribution_release}} multiverse'
+    - 'deb http://archive.ubuntu.com/ubuntu {{ansible_distribution_release}}-updates multiverse'
+    - 'deb-src http://archive.ubuntu.com/ubuntu {{ansible_distribution_release}}-updates multiverse'
+- name: install easy_install
+  become: yes
+  apt: name=python-setuptools
+- name: install pip
+  become: yes
+  easy_install: name=pip
+- name: install aws cli
+  become: yes
+  pip: name=awscli
+- name: Create AWS folder for config
+  file: path=~/.aws state=directory
+- name: Copy in AWS configuration
+  template: src={{item}} dest=~/.aws/ mode=600
+  with_items:
+    - config
+    - credentials
+- name: Copy slurm elastic scripts
+  become: yes
+  template: src={{item}} dest=/usr/sbin owner=root group=root mode=755
+  with_items:
+    - slurm_resume
+    - slurm_suspend
+    - node_startup
+    - node_shutdown
+- name: Make sshdir
+  file: path=~/.ssh state=directory
+- name: Copy across keypair
+  copy: src=slurmkey.pem dest=/home/ubuntu/.ssh/slurmkey.pem mode=0400 
+- name: Install ansisble
+  become: yes
+  apt: name=ansible
+- name: Ensure ansible hosts file exists
+  become: yes
+  file: path=/etc/ansible/hosts state=touch
+- name: Install JQ
+  become: yes
+  apt: name=jq
+  

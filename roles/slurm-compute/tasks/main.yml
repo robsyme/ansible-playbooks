@@ -1,4 +1,4 @@
 ---
 - name: start slurmd
   become: yes
-  command: /usr/sbin/slurmd -c
+  service: name=slurm-llnl state=started
